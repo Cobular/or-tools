@@ -41,6 +41,9 @@
 %template(DoubleVector) std::vector<double>;
 VECTOR_AS_CSHARP_ARRAY(double, double, double, DoubleVector);
 
+%template(IntVector) std::vector<int>;
+VECTOR_AS_CSHARP_ARRAY(int, int, int, IntVector);
+
 // We need to forward-declare the proto here, so that the PROTO_* macros
 // involving them work correctly. The order matters very much: this declaration
 // needs to be before the %{ #include ".../linear_solver.h" %}.
@@ -172,6 +175,9 @@ CONVERT_VECTOR(operations_research::MPVariable, MPVariable)
     const std::vector<operations_research::MPVariable*>&,
     const std::vector<double>&);
 %unignore operations_research::MPSolver::SetNumThreads;
+%unignore operations_research::MPSolver::SetStartingLpBasis(
+    const std::vector<int>&,
+    const std::vector<int>&);
 %extend operations_research::MPSolver {
   std::string ExportModelAsLpFormat(bool obfuscated) {
     operations_research::MPModelExportOptions options;
@@ -214,6 +220,88 @@ CONVERT_VECTOR(operations_research::MPVariable, MPVariable)
 
   bool SetNumThreads(int num_theads) {
     return $self->SetNumThreads(num_theads).ok();
+  }
+
+  /**
+   * Sets the starting LP basis for warm-start.
+   *
+   * This function takes a starting basis to be used in the next LP Solve()
+   * call. The statuses of a current solution can be retrieved via the
+   * BasisStatusAsInt() method of a Variable or Constraint.
+   *
+   * The arrays must have the same length as the number of variables and
+   * constraints respectively.
+   *
+   * WARNING: With GLOP, you should disable preprocessing when using this
+   * because the basis information will not be modified in sync with the
+   * presolve and will likely not mean much on the presolved problem.
+   * Use: solver.SetSolverSpecificParametersAsString("use_preprocessing: false")
+   *
+   * BasisStatus values are:
+   *   FREE = 0
+   *   AT_LOWER_BOUND = 1
+   *   AT_UPPER_BOUND = 2
+   *   FIXED_VALUE = 3
+   *   BASIC = 4
+   */
+  void SetStartingLpBasis(const std::vector<int>& variable_statuses,
+                          const std::vector<int>& constraint_statuses) {
+    std::vector<operations_research::MPSolver::BasisStatus> var_basis;
+    std::vector<operations_research::MPSolver::BasisStatus> con_basis;
+    var_basis.reserve(variable_statuses.size());
+    con_basis.reserve(constraint_statuses.size());
+    for (int s : variable_statuses) {
+      var_basis.push_back(static_cast<operations_research::MPSolver::BasisStatus>(s));
+    }
+    for (int s : constraint_statuses) {
+      con_basis.push_back(static_cast<operations_research::MPSolver::BasisStatus>(s));
+    }
+    $self->SetStartingLpBasis(var_basis, con_basis);
+  }
+}
+
+%unignore operations_research::MPVariable::BasisStatusAsInt;
+%extend operations_research::MPVariable {
+  /**
+   * Returns the basis status of the variable as an integer.
+   *
+   * This is useful for saving and restoring the basis for warm-start.
+   * Use in conjunction with Solver.SetStartingLpBasis().
+   *
+   * Returns:
+   *   FREE = 0
+   *   AT_LOWER_BOUND = 1
+   *   AT_UPPER_BOUND = 2
+   *   FIXED_VALUE = 3
+   *   BASIC = 4
+   */
+  int BasisStatusAsInt() const {
+    return static_cast<int>($self->basis_status());
+  }
+}
+
+%unignore operations_research::MPConstraint::BasisStatusAsInt;
+%extend operations_research::MPConstraint {
+  /**
+   * Returns the basis status of the constraint's slack variable as an integer.
+   *
+   * This is useful for saving and restoring the basis for warm-start.
+   * Use in conjunction with Solver.SetStartingLpBasis().
+   *
+   * Note that if a constraint "linear_expression in [lb, ub]" is transformed
+   * into "linear_expression + slack = 0" with slack in [-ub, -lb], then this
+   * status is the same as the status of the slack variable with AT_UPPER_BOUND
+   * and AT_LOWER_BOUND swapped.
+   *
+   * Returns:
+   *   FREE = 0
+   *   AT_LOWER_BOUND = 1
+   *   AT_UPPER_BOUND = 2
+   *   FIXED_VALUE = 3
+   *   BASIC = 4
+   */
+  int BasisStatusAsInt() const {
+    return static_cast<int>($self->basis_status());
   }
 }
 
